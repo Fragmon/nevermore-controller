@@ -259,6 +259,7 @@ void CST816S::read() {
     auto read = reg_read<Batch>(*bus, Cmd::XPOS_H);
     if (!read) {
         bus->log_error("CST816S", ADDRESS, "failed to read state");
+        state.touch = Touch::Up;  // don't leave LVGL stuck w/ a phantom press
         return;
     }
 

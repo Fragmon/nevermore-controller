@@ -3,6 +3,7 @@
 #include "hardware/i2c.h"
 #include "hardware/spi.h"
 #include "utility/square_wave.hpp"
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 
@@ -56,10 +57,14 @@ void bind_i2c_hw(Pins::BusI2C const& bus, uint8_t const hw) {
     case Pins::BusI2C::Kind::exhaust: kind = "exhaust"; break;
     }
 
+    // Generic buses are scanned for sensors too (e.g. CST816S touch, max 400 kbit/s).
+    // Clamp here rather than in the defaults since pin configs are persisted in flash.
+    auto const baud_rate = std::min(bus.baud_rate, Pins::BusI2C::BAUD_RATE_SENSOR_MAX);
+
     assert(hw <= 1);
     auto* i2c_inst = hw == 0 ? i2c0 : i2c1;
-    printf("I2C%u (%s) running at %u baud/s (requested %u baud/s)\n", hw, kind,
-            i2c_init(i2c_inst, bus.baud_rate), unsigned(bus.baud_rate));
+    printf("I2C%u (%s) running at %u baud/s (requested %u baud/s)\n", hw, kind, i2c_init(i2c_inst, baud_rate),
+            unsigned(bus.baud_rate));
 }
 
 void bind_spi_hw(Pins::BusSPI const& bus, uint8_t const hw) {
