@@ -1,5 +1,6 @@
 #include "ui.hpp"
 #include "FreeRTOS.h"
+#include "config.hpp"
 #include "display.hpp"
 #include "gatt/fan.hpp"
 #include "lvgl.h"
@@ -25,6 +26,9 @@ namespace nevermore::ui {
 namespace {
 
 constexpr bool CHAR_DRAW_TEMPERATURE_HDIV = false;
+
+// extra touch area (px) inwards from the fan power arc
+constexpr lv_coord_t FAN_ARC_TOUCH_BAND = 60;
 
 constexpr auto CHART_X_AXIS_LENGTH = 1.h;
 constexpr uint8_t CHART_SERIES_ENTIRES_MAX = display::RESOLUTION.width / 3;
@@ -357,7 +361,7 @@ void on_chart_draw(bool begin, lv_event_t* e) {
         //       only shade 'neath intake curve.
         //       Bonus: Since intake is drawn before exhaust (registered first),
         //              we do not draw over the exhaust line.
-        if (series != ui_chart_voc_intake.ui) break;
+        if (series != (DISPLAY_HIDE_INTAKE ? ui_chart_voc_exhaust.ui : ui_chart_voc_intake.ui)) break;
 
         auto threshold =
                 settings::g_active.voc_gating_threshold_override.or_(settings::g_active.voc_gating_threshold);
@@ -504,6 +508,18 @@ bool init() {
         lv_obj_add_event_cb(ui.chart, [](auto* e) { on_chart_draw(false, e); }, LV_EVENT_DRAW_PART_END, {});
     }
 
+    if constexpr (DISPLAY_HIDE_INTAKE) {
+        // hidden objects are excluded from flex layouts, so the exhaust labels take up the space
+        for (auto* label : {ui.temp_in, ui.pressure_in, ui.humidity_in, ui.voc_in})
+            if (label) lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
+
+        // keep the series (chart drawing relies on the intake VOC series), just don't draw it
+        if (ui.chart) {
+            lv_chart_hide_series(ui.chart, ui_chart_voc_intake.ui, true);
+            lv_chart_hide_series(ui.chart, ui_chart_temp_intake.ui, true);
+        }
+    }
+
     if (ui.touch_overlay) {
         lv_obj_add_event_cb(ui.touch_overlay,
                 [](auto*) {
@@ -515,12 +531,35 @@ bool init() {
     }
 
     if (ui.fan_power_arc) {
+        // LVGL's arc only starts dragging if pressed w/in ~2x its (4px) arc width of the edge,
+        // which is near impossible to hit on a small round touch display.
+        // Widen the hit band and map the touch angle to a value ourselves.
+        lv_obj_set_ext_click_area(ui.fan_power_arc, FAN_ARC_TOUCH_BAND);
         lv_obj_add_event_cb(ui.fan_power_arc,
-                [](lv_event_t* e) {
-                    auto state = lv_obj_get_state(ui.fan_power_arc);
-                    if (!(state & LV_STATE_PRESSED)) return;
+                [](lv_event_t*) {
+                    auto* arc = ui.fan_power_arc;
+                    auto* indev = lv_indev_get_act();
+                    if (!indev || lv_indev_get_type(indev) != LV_INDEV_TYPE_POINTER) return;
 
-                    BLE::Percentage8 power = lv_arc_get_percent(ui.fan_power_arc) * 100;
+                    lv_point_t p;
+                    lv_indev_get_point(indev, &p);
+                    p.x -= lv_coord_t((arc->coords.x1 + arc->coords.x2) / 2);
+                    p.y -= lv_coord_t((arc->coords.y1 + arc->coords.y2) / 2);
+                    if (p.x == 0 && p.y == 0) return;
+
+                    auto const start = lv_arc_get_bg_angle_start(arc);
+                    auto const sweep = (lv_arc_get_bg_angle_end(arc) - start + 360) % 360;
+                    auto angle = (int(lv_atan2(p.y, p.x)) - reinterpret_cast<lv_arc_t const*>(arc)->rotation - start + 720) % 360;
+                    if (sweep < angle) {
+                        // in the gap between the ends, snap to the nearer end
+                        angle = (angle - sweep) < (360 - angle) ? sweep : 0;
+                    }
+
+                    auto const min = lv_arc_get_min_value(arc);
+                    auto const max = lv_arc_get_max_value(arc);
+                    lv_arc_set_value(arc, int16_t(min + (max - min) * angle / sweep));
+
+                    BLE::Percentage8 power = lv_arc_get_percent(arc) * 100;
                     if (power == 0) {
                         power = BLE::NOT_KNOWN;  // clear override if dragged to zero
                     }
@@ -528,7 +567,7 @@ bool init() {
                     gatt::fan::fan_power_override(power);
                     fan_power_arc_colour_update();
                 },
-                LV_EVENT_VALUE_CHANGED, {});
+                LV_EVENT_PRESSING, {});
     }
 
 #if 0  // DEBUG HELPER - pre-populate chart with some data to test rendering
@@ -555,7 +594,7 @@ bool init() {
     // clear the axis label until we get our first sample
     if (ui.chart_x_axis_scale) lv_label_set_text(ui.chart_x_axis_scale, "");
 
-    if (get_rand_32() % 4 == 0) {
+    if (DISPLAY_STARTUP_QUOTES && get_rand_32() % 4 == 0) {
         ui.startup_overlay = startup_ui(ui);
         mk_timer(
                 [](auto*) {

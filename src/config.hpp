@@ -28,4 +28,11 @@ constexpr uint32_t I2C_BAUD_RATE_SENSOR_MAX = 400 * 1000;
 // when we know for certain that we're not USB powered.
 constexpr auto STDIO_USB_CONNECT_TIMEOUT = 1s;
 
+// Hide the intake labels & plot series on the display.
+// Useful for builds with only a single (exhaust) sensor board.
+constexpr bool DISPLAY_HIDE_INTAKE = true;
+
+// Occasionally show a random quote overlay on the display at startup.
+constexpr bool DISPLAY_STARTUP_QUOTES = false;
+
 }  // namespace nevermore
