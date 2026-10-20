@@ -35,4 +35,11 @@ constexpr bool DISPLAY_HIDE_INTAKE = true;
 // Occasionally show a random quote overlay on the display at startup.
 constexpr bool DISPLAY_STARTUP_QUOTES = false;
 
+// Use the modern single-reading display layout (`src/ui/modern`) instead of the
+// layout selected by the `display_ui` setting.
+constexpr bool DISPLAY_UI_MODERN = true;
+
+// How long the modern layout shows the logo splash at startup. 0 to disable.
+constexpr auto DISPLAY_SPLASH_DURATION = 2s;
+
 }  // namespace nevermore

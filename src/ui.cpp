@@ -10,12 +10,14 @@
 #include "sensors.hpp"
 #include "settings.hpp"
 #include "ui/circle_240/ui.hpp"
+#include "ui/modern/ui.hpp"
 #include "utility/task.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <initializer_list>
 #include <string>
+#include <optional>
 #include <tuple>
 
 using namespace std;
@@ -156,7 +158,9 @@ void fan_power_arc_colour_update() {
     if (!ui.fan_power_arc) return;
 
     lv_obj_set_style_arc_color(ui.fan_power_arc,
-            lv_color_hex(gatt::fan::fan_power_override() == BLE::NOT_KNOWN ? 0x00FFFF : 0xFFFF00),
+            lv_color_hex(gatt::fan::fan_power_override() == BLE::NOT_KNOWN
+                            ? (DISPLAY_UI_MODERN ? modern::COLOUR_ACCENT : 0x00FFFF)
+                            : (DISPLAY_UI_MODERN ? modern::COLOUR_OVERRIDE : 0xFFFF00)),
             LV_PART_INDICATOR | int(LV_STATE_DEFAULT));
 }
 
@@ -478,23 +482,23 @@ lv_obj_t* startup_ui(NevermoreDisplayUI const& ui) {
 }  // namespace
 
 bool init() {
-    using enum settings::DisplayUI;
-    switch (settings::g_active.display_ui) {
-    case CIRCLE_240_CLASSIC: {
-        ui = circle_240::classic();
-    } break;
-    case CIRCLE_240_SMALL_PLOT: {
-        ui = circle_240::small_plot();
-    } break;
-    case CIRCLE_240_NO_PLOT: {
-        ui = circle_240::no_plot();
-    } break;
+    auto mk_ui = []() -> optional<NevermoreDisplayUI> {
+        if (DISPLAY_UI_MODERN) return modern::create();
 
-    default: {
+        using enum settings::DisplayUI;
+        switch (settings::g_active.display_ui) {
+        case CIRCLE_240_CLASSIC: return circle_240::classic();
+        case CIRCLE_240_SMALL_PLOT: return circle_240::small_plot();
+        case CIRCLE_240_NO_PLOT: return circle_240::no_plot();
+        }
+
         printf("ERR - ui::init - unsupported display UI %u\n", (unsigned)settings::g_active.display_ui);
+        return {};
+    };
+    if (auto x = mk_ui()) {
+        ui = *x;
+    } else
         return false;
-    } break;
-    }
 
     // HACK: Need at least 2 points to draw the 100-VOC line.
     if (ui.chart) {
