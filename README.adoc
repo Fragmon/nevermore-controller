@@ -11,6 +11,74 @@ xref:guide-setup[A setup guide is available.]
 
 xref:doc/wiring.adoc[Wiring diagrams for common setups are available.]
 
+[#fork-changes]
+== Changes In This Fork
+
+This fork (https://github.com/Fragmon/nevermore-controller[Fragmon/nevermore-controller]) tracks
+https://github.com/SanaaHamel/nevermore-controller[SanaaHamel/nevermore-controller].
+`main` mirrors upstream; the changes below live on the `single-sensor-ui` branch.
+
+Target hardware: https://www.waveshare.com/product/rp2040-touch-lcd-1.28.htm[Waveshare RP2040-Touch-LCD-1.28]
+(round GC9A01 display w/ CST816S touch, no Bluetooth, connects to Klipper via USB serial)
+with a single https://github.com/xbst/Nevermore-Sensors[BME280 + SGP40 sensor board] on the exhaust bus (GPIO 16/17).
+
+.Fixes
+* *Touch input unusable* - generic I2C buses defaulted to 1 Mbit/s, but the CST816S only supports 400 kbit/s.
+  Reads failed constantly and left the UI stuck with a phantom press.
+  All I2C buses are now clamped to `I2C_BAUD_RATE_SENSOR_MAX` at init (`src/config/pins.cpp`),
+  and the touch is released on a failed read (`src/sensors/cst816s.cpp`).
+* *Fan power ring barely reacted to touch* - LVGL's arc only starts dragging within ~8px of the display edge.
+  The ring now has a wide touch band and maps the touch angle to the fan power directly (`src/ui.cpp`).
+
+.New display layout (`src/ui/modern`)
+* Logo splash at startup, then a dark layout with the logo, a large colour-coded VOC index
+  (_Gut_ / _Mittel_ / _Hoch_), a subtle 1h VOC history curve, temperature / humidity / pressure,
+  and fan power / RPM.
+* Fan power ring around the edge (teal, amber while manually overridden).
+* The logo source is `ui-project/assets/logo.png`. Regenerate the LVGL images after changing it:
++
+[source,powershell]
+----
+pwsh tools/img-to-lvgl.ps1 -Src ui-project/assets/logo.png -Out src/ui/modern/img_logo_small.c -Name img_logo_small -Width 84
+pwsh tools/img-to-lvgl.ps1 -Src ui-project/assets/logo.png -Out src/ui/modern/img_logo_large.c -Name img_logo_large -Width 176
+----
+
+.New options in `src/config.hpp`
+[%autowidth]
+|===
+| Option | Default | Description
+
+| `DISPLAY_UI_MODERN`        | `true`  | Use the new layout instead of the one selected by the `display_ui` setting.
+| `DISPLAY_SPLASH_DURATION`  | `2s`    | How long the logo splash is shown at startup. `0s` disables it.
+| `DISPLAY_HIDE_INTAKE`      | `true`  | Only show exhaust readings (single sensor setups). Also applies to the classic layouts.
+| `DISPLAY_STARTUP_QUOTES`   | `false` | Occasionally show a random quote overlay at startup (upstream behaviour).
+|===
+
+.Building (Windows w/ WSL)
+. Install Ubuntu in WSL, then the toolchain:
++
+[source,bash]
+----
+sudo apt-get install -y git cmake ninja-build python3 build-essential gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
+git clone --depth 1 --branch 1.5.1 https://github.com/raspberrypi/pico-sdk.git ~/pico/pico-sdk
+git -C ~/pico/pico-sdk submodule update --init --depth 1
+git config --global url."https://github.com/".insteadOf git@github.com:  # LVGL is fetched via SSH otherwise
+----
+. Build (from the repo root, inside WSL):
++
+[source,bash]
+----
+bash tools/build-waveshare-wsl.sh
+----
++
+The script builds from a copy on the Linux filesystem (CMake's `configure_file` can't set permissions on `/mnt/c`,
+and the Windows checkout's CRLF line endings break the Python helper scripts).
+It also works around CMake 4 rejecting the Pico SDK 1.5.1 tools via `CMAKE_POLICY_VERSION_MINIMUM`.
+. Flash `build-out/nevermore-controller_waveshare-rp2040-touch-lcd-1.28.uf2`:
+hold *BOOT*, plug in USB, and copy the file onto the `RPI-RP2` drive.
+
+NOTE: After a reboot the VOC index shows `--` / _Startet_ for about a minute while the SGP40's algorithm warms up.
+
 toc::[]
 
 == Features

@@ -2,6 +2,7 @@
 /.cache
 # build artifact
 /build
+/build-out
 /compile_commands.json
 # debugger artifacts
 /.vscode/.cortex-debug.peripherals.state.json
